@@ -71,7 +71,7 @@ class Client:
 		self.start_time: float = 0.0
 		
 		self._msg_handles: List[Awaitable[T]] = []
-		self._has_handle = False
+		self._has_handle: bool = False
 
 	async def start(self) -> NoReturn:
 		await self.register()
@@ -112,25 +112,26 @@ class Client:
 					if len(rt['data']) > 0:
 						#print(rt)
 						for x in self._msg_handles:
-							self.start_handle(x, rt)
+							self._start_handle(x, rt)
 						#await self.handle_group_message(rt)
 				except:
 					print(rt)
 					traceback.print_exc()
 			await asyncio.sleep(.3)
 
-	def start_handle(self, handle: Awaitable[T], msg: Dict[str, T]) -> NoReturn:
-		#self.logger.debug('Calling start handle')
-		#if msg['data'][0].get('sender') and msg['data'][0]['sender']['group']['id'] != self.listen_to_group: return
+	async def _boostrap_start_handle(self, handle: Awaitable[T], msg: Dict[str, T]) -> NoReturn:
+		try:
+			await handle(self, msg)
+		except:
+			traceback.print_exc()
+
+	def _start_handle(self, handle: Awaitable[T], msg: Dict[str, T]) -> NoReturn:
 		if msg['data'][0].get('messageChain') is None: return
-		#msg_text = ''.join(self.parse_group_message(msg)).replace('\n', '\r')
 		msg_text = self.parse_group_message(msg)
-		#print(msg_text)
-		#logger.debug(msg_text)
 		sender = msg['data'][0]['sender']['id']
 		group_id = msg['data'][0]['sender']['group']['id']
 		message_obj = GroupMessageText(group_id, sender, msg_text, msg['data'][0]['messageChain'][0]['id'])
-		asyncio.run_coroutine_threadsafe(handle(self, message_obj), asyncio.get_event_loop())
+		asyncio.run_coroutine_threadsafe(self._boostrap_start_handle(handle, message_obj), asyncio.get_event_loop())
 
 	async def _poll(self) -> Dict[str, T]:
 		async with self.session.get(f'http://{self.web_hook}/fetchMessage', params={'sessionKey': self.session_key, 'count':1}, raise_for_status=False) as response:
