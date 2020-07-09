@@ -17,14 +17,15 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+from abc import ABCMeta
 from dataclasses import dataclass
 from typing import Dict
 
 
 @dataclass
-class MessageChain:
+class MessageChain(metaclass=ABCMeta):
 	def gdict(self) -> Dict[str, str]:
-		raise NotImplementedError
+		return NotImplemented
 
 @dataclass
 class Plain(MessageChain):
