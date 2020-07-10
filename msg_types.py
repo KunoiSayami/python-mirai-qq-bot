@@ -24,17 +24,17 @@ from typing import Dict
 
 @dataclass
 class MessageChain(metaclass=ABCMeta):
-	def gdict(self) -> Dict[str, str]:
-		return NotImplemented
+    def gdict(self) -> Dict[str, str]:
+        return NotImplemented
 
 @dataclass
 class Plain(MessageChain):
-	text: str
-	def gdict(self) -> Dict[str, str]:
-		return {'type': 'Plain', 'text': self.text}
+    text: str
+    def gdict(self) -> Dict[str, str]:
+        return {'type': 'Plain', 'text': self.text}
 
 @dataclass
 class Image(MessageChain):
-	imageId: str
-	def gdict(self) -> Dict[str, str]:
-		return {'type': 'Image', 'imageId': self.imageId}
+    imageId: str
+    def gdict(self) -> Dict[str, str]:
+        return {'type': 'Image', 'imageId': self.imageId}
