@@ -17,26 +17,41 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
-from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, TypeVar
 
-
-@dataclass
-class MessageChain(metaclass=ABCMeta):
-
-    @abstractmethod
-    def gdict(self) -> Dict[str, str]:
-        return NotImplemented
+mixType = TypeVar('mixType', str, int)
+inputType = Dict[str, mixType]
 
 @dataclass
-class Plain(MessageChain):
-    text: str
-    def gdict(self) -> Dict[str, str]:
-        return {'type': 'Plain', 'text': self.text}
+class MessageChain:
+    pass
 
-@dataclass
+@dataclass(init=False)
+class Source(MessageChain):
+    id: int
+    time: int
+
+    def __init__(self, obj: inputType) -> None:
+        super().__init__()
+        self.id = obj['id']
+        self.time = obj['time']
+
+@dataclass(init=False)
 class Image(MessageChain):
     imageId: str
-    def gdict(self) -> Dict[str, str]:
-        return {'type': 'Image', 'imageId': self.imageId}
+    url: str
+    #path: Optional[str]
+
+    def __init__(self, obj: inputType) -> None:
+        super().__init__()
+        self.imageId = obj['imageId']
+        self.url = obj['url']
+
+@dataclass(init=False)
+class Sender(MessageChain):
+    id: int
+    def __init__(self, obj: inputType) -> None:
+        self.id = obj['id']
+
+

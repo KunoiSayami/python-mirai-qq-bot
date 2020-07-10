@@ -67,17 +67,16 @@ class MiraiConfig:
     @classmethod
     def create_from_config(cls, config: ConfigParser) -> 'MiraiConfig':
         self = cls(config.getint('mirai', 'qq'), config.get('mirai', 'api_key'), config.get('mirai', 'web_hook'),
-                   config.getboolean('login', 'enable'), config.get('login', 'password'))
+                   config.getboolean('login', 'enable'), '')
         return self
 
 class MiraiClient:
-    def __init__(self, qq_id: int, api_key: str, web_hook: str):
+    def __init__(self, config: ConfigParser):
         self.logger: logging.Logger = logging.getLogger('qqbot')
         self.logger.setLevel(logging.DEBUG)
 
-        self.qq_id: int = qq_id
-        self.api_key: str = api_key
-        self.web_hook: str = web_hook
+        self.config: MiraiConfig = MiraiConfig.create_from_config(config)
+
         self.session: aiohttp.ClientSession = aiohttp.ClientSession(raise_for_status=True)
 
         self.session_key: str = ''
@@ -88,13 +87,14 @@ class MiraiClient:
         self._has_handle: bool = False
 
     async def start(self) -> None:
+        #await self.login()
         await self.register()
         #print(self.session_key)
         await self.verify()
         await self.enable_websocket_status()
 
     async def register(self) -> None:
-        async with self.session.post(f'http://{self.web_hook}/auth', json={'authKey': self.api_key}) as response:
+        async with self.session.post(f'http://{self.config.host}/auth', json={'authKey': self.config.auth_key}) as response:
             obj = await response.json()
             if obj['code'] != 0:
                 raise LoginException(obj)
@@ -103,14 +103,14 @@ class MiraiClient:
             self.start_time = datetime.datetime.now().replace(microsecond=0)
 
     async def verify(self) -> None:
-        async with self.session.post(f'http://{self.web_hook}/verify', json={'sessionKey': self.session_key, 'qq': self.qq_id}) as response:
+        async with self.session.post(f'http://{self.config.host}/verify', json={'sessionKey': self.session_key, 'qq': self.config.qq_id}) as response:
             obj = await response.json()
             if obj['code'] != 0:
                 raise LoginException(obj)
             self._logined = True
 
     async def release(self) -> None:
-        async with self.session.post(f'http://{self.web_hook}/release', json={'sessionKey': self.session_key, 'qq': self.qq_id}) as response:
+        async with self.session.post(f'http://{self.config.host}/release', json={'sessionKey': self.session_key, 'qq': self.config.qq_id}) as response:
             obj = await response.json()
             if obj['code'] != 0:
                 raise LoginException(obj)
@@ -121,10 +121,10 @@ class MiraiClient:
         self._has_handle = True
 
     async def run(self) -> None:
-        async with self.session.ws_connect(f'http://{self.web_hook}/all?sessionKey={self.session_key}') as ws:
+        async with self.session.ws_connect(f'http://{self.config.host}/all?sessionKey={self.session_key}') as ws:
             async for msg in ws:
                 if msg.type == aiohttp.WSMsgType.TEXT:
-                    self.logger.debug('')
+                    self.logger.debug(msg.data)
                     for handle in self._msg_handles:
                         self._start_handle(handle, msg.data)
                 elif msg.type == aiohttp.WSMsgType.ERROR:
@@ -146,7 +146,7 @@ class MiraiClient:
         asyncio.run_coroutine_threadsafe(self._boostrap_start_handle(handle, message_obj), asyncio.get_event_loop())
 
     async def _poll(self) -> Dict[str, T]:
-        async with self.session.get(f'http://{self.web_hook}/fetchMessage', params={'sessionKey': self.session_key, 'count':1}, raise_for_status=False) as response:
+        async with self.session.get(f'http://{self.config.host}/fetchMessage', params={'sessionKey': self.session_key, 'count':1}, raise_for_status=False) as response:
             if response.status == 500:
                 return {'count': 0, 'data': []}
             response.raise_for_status()
@@ -184,12 +184,12 @@ class MiraiClient:
         await self.send_group_message(group_id, [image], **kwargs)
 
     async def _send_group_message(self, group_id: int, message_chain: List[MessageChain], **kwargs) -> None:
-        async with self.session.post(f'http://{self.web_hook}/sendGroupMessage', json=self.generate_message_params(group_id, message_chain, **kwargs)):
+        async with self.session.post(f'http://{self.config.host}/sendGroupMessage', json=self.generate_message_params(group_id, message_chain, **kwargs)):
             pass
 
     async def _upload_image(self, path: str, type_: str='group') -> msg_types.Image:
         async with aiofiles.open(path, 'rb') as fin:
-            async with self.session.post(f'http://{self.web_hook}/uploadImage', data=self.generate_upload_image_params(type_, await fin.read())) as response:
+            async with self.session.post(f'http://{self.config.host}/uploadImage', data=self.generate_upload_image_params(type_, await fin.read())) as response:
                 obj = await response.json()
                 return msg_types.Image(obj['imageId'])
 
@@ -200,30 +200,52 @@ class MiraiClient:
         await self.release()
 
     async def check_websocket_status(self) -> bool:
-        async with self.session.get(f'http://{self.web_hook}/config', params={'sessionKey': self.session_key}) as response:
+        async with self.session.get(f'http://{self.config.host}/config', params={'sessionKey': self.session_key}) as response:
             obj = await response.json()
             return obj.get('enableWebsocket', False)
 
     async def enable_websocket_status(self) -> bool:
         if not await self.check_websocket_status():
-            async with self.session.post(f'http://{self.web_hook}/config', json={'sessionKey': self.session_key, 'enableWebsocket': True}):
+            async with self.session.post(f'http://{self.config.host}/config', json={'sessionKey': self.session_key, 'enableWebsocket': True}):
                 return True
         return False
 
     async def check_id_online(self) -> bool:
-        async with self.session.get(f'http://{self.web_hook}/managers', params={'qq': self.qq_id}) as response:
+        async with self.session.get(f'http://{self.config.host}/managers', params={'qq': self.config.qq_id}) as response:
             obj = await response.json()
             return isinstance(obj, list)
     
+    def generate_login_params(self) -> Dict[str, Union[str, List[str]]]:
+        return {'authKey': self.config.auth_key, 'name': 'login', 'args': [self.config.qq_id, self.config.password]}
+
+    async def register_login_command(self) -> None:
+        async with self.session.post(f'http://{self.config.host}/command/register', json={
+            "authKey": self.config.auth_key,
+            "name": "login",
+            "alias": ["lg", "SignIn"],
+            "description": "login"
+        }) as response:
+            print(await response.text())
+
+    async def do_login(self) -> None:
+        async with self.session.post(f'http://{self.config.host}/command/send', json=self.generate_login_params()) as response:
+            print(await response.text())
+    
     async def login(self) -> None:
-        async with self.session.get(f'http://{self.web_hook}/command/send', params={'qq': self.qq_id}) as response:
-            pass
-        
+        self.logger.warning('Use deprecated login function, please login manually')
+        if self.config.need_login:
+            self.logger.debug('Request login, check is bot online')
+            if not await self.check_id_online():
+                await self.register_login_command()
+                await self.do_login()
+                self.logger.info('Login successfully')
+            else:
+                self.logger.info('Already logined.')
 
 async def main():
     config = ConfigParser()
     config.read('config.ini')
-    bot = MiraiClient(config.getint('mirai', 'qq'), config.get('mirai', 'api_key'), config.get('mirai', 'web_hook'))
+    bot = MiraiClient(config)
     await bot.start()
     try:
         await bot.run()
@@ -236,7 +258,7 @@ if __name__ == "__main__":
     except ModuleNotFoundError:
         logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(lineno)d - %(message)s')
     else:
-        coloredlogs.install(logging.DEBUG, fmt='%(asctime)s,%(msecs)03d - %(levelname)s - %(name)s - %(funcName)s - %(lineno)d - %(message)s')
+        coloredlogs.install(logging.DEBUG, fmt='%(asctime)s,%(msecs)03d - %(levelname)8s - %(name)s - %(funcName)s - %(lineno)d - %(message)s')
     logging.getLogger('urllib3.connectionpool').setLevel(logging.INFO)
     loop = asyncio.get_event_loop()
     try:
